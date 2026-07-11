@@ -105,6 +105,10 @@ The main things I found:
 5. The correlation heatmap showed no pair of features above roughly 0.6, so I
    kept all of them (see `correlation_heatmap.png`).
 
+![Class distribution](../reports/figures/class_distribution.png)
+
+![Correlation heatmap](../reports/figures/correlation_heatmap.png)
+
 ---
 
 ## 4. Preprocessing and feature engineering
@@ -156,7 +160,12 @@ scenario where missing a sick patient is worse than a false alarm. The
 coefficients are also easy to interpret, which is a plus in a medical setting.
 
 Confusion matrices and ROC curves for all three models are saved in
-`reports/figures/` and attached to the MLflow runs.
+`reports/figures/` and attached to the MLflow runs. These are the plots for
+the selected logistic regression model:
+
+![ROC curve of the selected model](../reports/figures/roc_curve_logistic_regression.png)
+
+![Confusion matrix of the selected model](../reports/figures/confusion_matrix_logistic_regression.png)
 
 ---
 
@@ -173,8 +182,10 @@ artifacts under `mlruns/`). For every run I log:
   and the fitted pipeline itself via `mlflow.sklearn.log_model`
 
 The UI can be started with `mlflow ui --backend-store-uri sqlite:///mlflow.db`.
-Screenshots are in `screenshots/mlflow_runs.png` and
-`screenshots/mlflow_run_detail.png`.
+
+![MLflow run table with the three model families](../screenshots/mlflow_runs.png)
+
+![Detail view of the winning logistic regression run](../screenshots/mlflow_run_detail.png)
 
 Next to the MLflow store, the winning pipeline is exported to
 `models/model.joblib` together with `models/model_metadata.json`, which records
@@ -214,8 +225,9 @@ any job stops the rest:
 | Docker | builds the image with the fresh model, starts the container, waits for `/health`, and POSTs a sample patient to `/predict` |
 
 The tests run against synthetic data generated in `tests/conftest.py`, so they
-don't need network access or a pre-trained model. A green run is shown in
-`screenshots/ci_pipeline.png`.
+don't need network access or a pre-trained model.
+
+![A green CI run with all four jobs and the uploaded artifacts](../screenshots/ci_pipeline.png)
 
 ---
 
@@ -239,8 +251,13 @@ curl -X POST http://localhost:8000/predict -H "Content-Type: application/json" -
 ```
 
 The container returns exactly the same prediction as the local environment,
-which was the point of the exercise. See `screenshots/docker_run.png` and
-`screenshots/predict_response.png`.
+which was the point of the exercise.
+
+![Running containers and a health check](../screenshots/docker_run.png)
+
+![A predict call with its JSON response](../screenshots/predict_response.png)
+
+![Swagger UI of the running API](../screenshots/swagger_ui.png)
 
 ---
 
@@ -258,9 +275,12 @@ kubectl apply -f k8s/deployment.yaml -f k8s/service.yaml
 kubectl get pods,svc -l app=heart-disease-api
 ```
 
-Both pods came up healthy and `/predict` works through the service (see
-`screenshots/kubectl_get_pods.png` and `screenshots/k8s_predict.png`). The full
+Both pods came up healthy and `/predict` works through the service. The full
 walkthrough is in `k8s/README.md`.
+
+![Pods and the LoadBalancer service](../screenshots/kubectl_get_pods.png)
+
+![Health and predict calls through the Kubernetes service](../screenshots/k8s_predict.png)
 
 ---
 
@@ -277,8 +297,9 @@ Three layers of visibility:
    mix of predictions over time is a cheap early warning for data drift.
 3. `docker compose up --build` starts the API together with Prometheus and
    Grafana. Grafana is provisioned automatically with a dashboard showing
-   request rate, p95 latency, predictions by class and HTTP status codes
-   (see `screenshots/grafana_dashboard.png`).
+   request rate, p95 latency, predictions by class and HTTP status codes.
+
+![Grafana dashboard with live traffic](../screenshots/grafana_dashboard.png)
 
 For an ML service this is more than uptime monitoring. A shift in the
 prediction distribution or a latency regression usually shows up here long
