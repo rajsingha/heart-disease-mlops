@@ -1,5 +1,7 @@
 # Heart Disease Prediction — End-to-End MLOps Project
 
+**Repository:** <https://github.com/rajsingha/heart-disease-mlops>
+
 Predicts the risk of heart disease from patient health data (UCI Heart Disease
 dataset, Cleveland subset) and serves the model as a containerized, monitored,
 Kubernetes-ready FastAPI service.
