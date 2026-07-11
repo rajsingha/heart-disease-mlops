@@ -1,312 +1,312 @@
 # Heart Disease Prediction — MLOps Project Report
 
-**Course:** MLOps Experimental Learning Assignment
-**Author:** Raj Singha
-**Date:** July 2026
 **Repository:** https://github.com/rajsingha/heart-disease-mlops
 
 ---
 
 ## 1. Project overview
 
-This project builds, tracks, packages, and deploys a machine-learning classifier
-that predicts the risk of heart disease from patient health data, following
-production MLOps practices end to end:
+The goal of this project was to take a machine learning model from raw data all
+the way to a deployed, monitored API using standard MLOps practices. I used the
+UCI Heart Disease dataset to train a binary classifier that predicts whether a
+patient has heart disease, and then built everything around it: experiment
+tracking with MLflow, unit tests, a CI pipeline on GitHub Actions, a Docker
+image, a Kubernetes deployment, and basic monitoring with Prometheus and
+Grafana.
 
-- **Data & EDA** — automated download of the UCI Heart Disease dataset, scripted
-  and notebook-based exploratory analysis.
-- **Modelling** — a reusable sklearn preprocessing pipeline plus three tuned
-  model families (Logistic Regression, Random Forest, XGBoost) compared with
-  stratified 5-fold cross-validation.
-- **Experiment tracking** — every tuning run logged to MLflow (parameters,
-  metrics, plots, serialized models).
-- **Serving** — a FastAPI `/predict` endpoint returning prediction +
-  probability, with request logging and Prometheus metrics.
-- **Automation** — pytest suite and a GitHub Actions pipeline
-  (lint → test → train → Docker build + smoke test) that fails on any error.
-- **Deployment** — a slim Docker image and Kubernetes manifests
-  (Deployment + LoadBalancer Service) that run on Docker Desktop, Minikube, or
-  any cloud cluster.
-- **Monitoring** — Prometheus scraping + an auto-provisioned Grafana dashboard
-  via `docker compose up`.
+The final model is a tuned logistic regression with a test ROC-AUC of 0.96. It
+is served by a FastAPI app with a `/predict` endpoint that takes patient data
+as JSON and returns the prediction along with a probability.
 
 ### Architecture
 
 ```mermaid
-flowchart LR
-    subgraph Development
-        A[UCI repository] -->|src/data/download.py| B[data/raw]
-        B -->|src/data/preprocess.py| C[data/processed]
-        C --> D[src/eda.py + notebook]
-        C -->|src/models/train.py| E[GridSearchCV<br/>LogReg / RF / XGBoost]
-        E -->|params, metrics, plots, models| F[(MLflow)]
-        E -->|best pipeline| G[models/model.joblib]
-    end
-    subgraph CI/CD - GitHub Actions
-        H[lint: ruff] --> I[test: pytest]
-        I --> J[train: model artifact]
-        J --> K[docker build + smoke test]
-    end
-    subgraph Production
-        G --> L[Docker image<br/>FastAPI + model]
-        L --> M[Kubernetes<br/>Deployment x2 + LoadBalancer]
-        M --> N[/POST /predict/]
-        L --> O[(Prometheus)] --> P[Grafana dashboard]
-    end
+flowchart TD
+    A[UCI dataset] --> B[Download and clean data]
+    B --> C[EDA figures and notebook]
+    B --> D[Train 3 models with GridSearchCV]
+    D --> E[MLflow tracking]
+    D --> F[Best model saved as joblib]
+    F --> G[FastAPI app in Docker]
+    G --> H[Kubernetes: 2 replicas + LoadBalancer]
+    G --> I[Prometheus + Grafana monitoring]
 ```
 
-Text fallback:
+The same flow in plain text:
 
 ```
-UCI data ──▶ download.py ──▶ preprocess.py ──▶ cleaned CSV ──▶ EDA figures
-                                   │
-                                   ▼
-                       train.py (GridSearchCV x 3 families)
-                          │                    │
-                          ▼                    ▼
-                    MLflow tracking      models/model.joblib
-                                               │
-              GitHub Actions: ruff ▶ pytest ▶ train ▶ docker smoke-test
-                                               │
-                                               ▼
-                    Docker image (FastAPI) ──▶ Kubernetes (2 replicas + LB)
-                                               │
-                              /metrics ──▶ Prometheus ──▶ Grafana
+UCI dataset
+   -> download + clean (src/data)
+   -> EDA (src/eda.py, notebook)
+   -> training with GridSearchCV (src/models/train.py)
+        -> runs logged to MLflow
+        -> best model saved to models/model.joblib
+   -> FastAPI app (src/api) packaged into a Docker image
+        -> deployed on Kubernetes (2 replicas, LoadBalancer)
+        -> scraped by Prometheus, viewed in Grafana
+
+CI on every push: ruff -> pytest -> train -> docker build + smoke test
 ```
 
 ---
 
 ## 2. Dataset
 
-**UCI Heart Disease** (Cleveland subset) — 303 patients, 13 clinical features,
-and a 0–4 diagnosis label binarised to `target` (1 = disease present).
+I used the Cleveland subset of the UCI Heart Disease dataset: 303 patients and
+13 clinical features. The original label (`num`) goes from 0 to 4, so I
+converted it to a binary target where 1 means any presence of heart disease.
 
 | Feature | Description | Type |
 |---|---|---|
 | age | Age in years | numeric |
 | sex | 1 = male, 0 = female | binary |
-| cp | Chest pain type (1–4; 4 = asymptomatic) | categorical |
+| cp | Chest pain type (1-4, 4 = asymptomatic) | categorical |
 | trestbps | Resting blood pressure (mm Hg) | numeric |
 | chol | Serum cholesterol (mg/dl) | numeric |
 | fbs | Fasting blood sugar > 120 mg/dl | binary |
-| restecg | Resting ECG result (0–2) | categorical |
+| restecg | Resting ECG result (0-2) | categorical |
 | thalach | Maximum heart rate achieved | numeric |
 | exang | Exercise-induced angina | binary |
 | oldpeak | ST depression (exercise vs rest) | numeric |
-| slope | Slope of peak exercise ST segment (1–3) | categorical |
-| ca | Major vessels colored by fluoroscopy (0–3) | numeric |
+| slope | Slope of peak exercise ST segment (1-3) | categorical |
+| ca | Major vessels colored by fluoroscopy (0-3) | numeric |
 | thal | Thalassemia (3/6/7) | categorical |
 
-Acquisition is scripted (`python -m src.data.download`): it fetches via the
-`ucimlrepo` package with a direct-URL fallback, so a clean checkout can always
-rebuild the raw data. The cleaned CSV is additionally committed under
-`data/processed/` so CI can retrain without network access to UCI.
+The download is scripted in `src/data/download.py`. It first tries the
+`ucimlrepo` package and falls back to the raw file on the UCI archive if that
+fails, so the raw data can always be rebuilt from a fresh checkout. I also
+committed the cleaned CSV under `data/processed/` so the CI pipeline can
+retrain the model without depending on the UCI servers being up.
 
 ---
 
 ## 3. EDA findings
 
-All figures are generated by `python -m src.eda` into `reports/figures/` and
-reproduced interactively in `notebooks/eda.ipynb` (executed with outputs).
+The figures are generated by `python -m src.eda` into `reports/figures/`, and
+the same analysis can be run interactively in `notebooks/eda.ipynb`.
 
-1. **Near-balanced classes** — 164 (54.1%) no-disease vs 139 (45.9%) disease.
-   No resampling needed; stratified splits preserve the ratio.
-   *(figure: class_distribution.png)*
-2. **Minimal missingness** — only `ca` (4 rows) and `thal` (2 rows) contain
-   missing values (raw `?` markers). They are imputed inside the model
-   pipeline — median for numeric, most-frequent for categorical — fitted on
-   training folds only, so no leakage. *(figure: missing_values.png)*
-3. **Strong univariate signal** — patients with disease reach clearly lower
-   maximum heart rates (`thalach`), show larger exercise-induced ST depression
-   (`oldpeak`), and more fluoroscopy-colored vessels (`ca`).
-   *(figure: histograms_numeric.png)*
-4. **Categorical risk factors** — asymptomatic chest pain (`cp = 4`),
-   exercise-induced angina (`exang = 1`), flat/down-sloping ST (`slope ≥ 2`),
-   and reversible-defect thalassemia (`thal = 7`) all carry markedly higher
-   disease rates. *(figure: categorical_vs_target.png)*
-5. **No problematic multicollinearity** — the strongest pairwise correlation is
-   ≈ 0.6; all features are retained. *(figure: correlation_heatmap.png)*
+The main things I found:
 
----
-
-## 4. Preprocessing & feature engineering
-
-A single sklearn `ColumnTransformer` is embedded as the first step of every
-model pipeline (`src/data/preprocess.py`), guaranteeing identical
-transformations at training and inference time:
-
-- **Numeric** (`age, trestbps, chol, thalach, oldpeak, ca`):
-  `SimpleImputer(median)` → `StandardScaler`
-- **Categorical** (`sex, cp, fbs, restecg, exang, slope, thal`):
-  `SimpleImputer(most_frequent)` → `OneHotEncoder(handle_unknown="ignore",
-  drop="if_binary")`
-
-Because the transformer is *inside* the persisted pipeline, the API deserializes
-one artifact (`models/model.joblib`) and feeds it raw JSON features directly —
-no separate preprocessing code path to drift out of sync.
-
-Data are split 80/20 with stratification (`random_state = 42`) before any
-fitting; all tuning happens via cross-validation inside the training split.
+1. The classes are close to balanced: 164 patients without disease (54.1%) and
+   139 with disease (45.9%). Because of this I didn't do any resampling and
+   just used stratified splits (see `class_distribution.png`).
+2. Missing values are rare. Only `ca` (4 rows) and `thal` (2 rows) have them,
+   written as `?` in the raw file. I impute them inside the model pipeline
+   (median for numeric, most frequent for categorical) so the imputers are
+   fitted only on training data and there is no leakage
+   (see `missing_values.png`).
+3. Some features separate the classes clearly. Patients with disease reach
+   lower maximum heart rates, show more ST depression during exercise, and
+   have more vessels colored during fluoroscopy (see `histograms_numeric.png`).
+4. On the categorical side, asymptomatic chest pain (cp = 4), exercise-induced
+   angina, a flat or down-sloping ST segment, and a reversible thalassemia
+   defect (thal = 7) all come with much higher disease rates
+   (see `categorical_vs_target.png`).
+5. The correlation heatmap showed no pair of features above roughly 0.6, so I
+   kept all of them (see `correlation_heatmap.png`).
 
 ---
 
-## 5. Model development & comparison
+## 4. Preprocessing and feature engineering
 
-Three model families were tuned with `GridSearchCV` (stratified 5-fold CV,
-refit on ROC-AUC) in `src/models/train.py`:
+All preprocessing lives in a single sklearn `ColumnTransformer`
+(`src/data/preprocess.py`) that becomes the first step of every model pipeline:
+
+- numeric features (`age, trestbps, chol, thalach, oldpeak, ca`): median
+  imputation, then standard scaling
+- categorical features (`sex, cp, fbs, restecg, exang, slope, thal`): most
+  frequent imputation, then one-hot encoding with `handle_unknown="ignore"`
+
+The important design choice here is that the transformer is saved inside the
+pipeline itself. The API loads one joblib file and can feed raw JSON values
+straight into it. There is no second preprocessing implementation that could
+drift away from the training code.
+
+The data is split 80/20 with stratification and a fixed random seed (42). All
+hyperparameter tuning happens with cross-validation inside the training split,
+and the test set is only used at the end for the final comparison.
+
+---
+
+## 5. Model development and comparison
+
+I tuned three model families with `GridSearchCV`, using stratified 5-fold
+cross-validation and refitting on ROC-AUC (`src/models/train.py`):
 
 | Family | Grid | Best params |
 |---|---|---|
-| Logistic Regression | C ∈ {0.01, 0.1, 1, 10} × penalty {L1, L2} | C = 1.0, L2 |
-| Random Forest | trees {200, 400} × depth {None, 5, 10} × min_split {2, 5} | 200 trees, depth 5, min_split 5 |
-| XGBoost | trees {200, 400} × depth {3, 5} × lr {0.05, 0.1} | 200 trees, depth 3, lr 0.05 |
+| Logistic Regression | C in {0.01, 0.1, 1, 10}, L1/L2 penalty | C = 1.0, L2 |
+| Random Forest | 200/400 trees, depth None/5/10, min_split 2/5 | 200 trees, depth 5, min_split 5 |
+| XGBoost | 200/400 trees, depth 3/5, lr 0.05/0.1 | 200 trees, depth 3, lr 0.05 |
 
-**Results** (held-out test set, n = 61; full table in `reports/model_comparison.csv`):
+Results on the held-out test set (61 patients, full table in
+`reports/model_comparison.csv`):
 
-| Model | CV ROC-AUC (±σ) | Test ROC-AUC | Accuracy | Precision | Recall | F1 |
+| Model | CV ROC-AUC | Test ROC-AUC | Accuracy | Precision | Recall | F1 |
 |---|---|---|---|---|---|---|
-| **Logistic Regression** | **0.908 ± 0.018** | **0.960** | 0.869 | 0.813 | 0.929 | 0.867 |
+| Logistic Regression | 0.908 ± 0.018 | 0.960 | 0.869 | 0.813 | 0.929 | 0.867 |
 | Random Forest | 0.901 ± 0.025 | 0.949 | 0.885 | 0.839 | 0.929 | 0.881 |
 | XGBoost | 0.865 ± 0.029 | 0.944 | 0.869 | 0.813 | 0.929 | 0.867 |
 
-**Selection: Logistic Regression.** It achieves the best cross-validated and
-test ROC-AUC with the lowest variance across folds, and — on a 303-row dataset —
-the simpler, better-calibrated linear model is less likely to overfit than the
-tree ensembles, whose extra capacity brings no measurable gain here. Its high
-recall (0.93) is the right trade-off for a screening use case, where missing a
-diseased patient is costlier than a false alarm. Interpretable coefficients are
-a bonus in a clinical context.
+I picked logistic regression. It has the best cross-validated and test ROC-AUC
+and the lowest variance across folds. With only 303 rows the tree ensembles
+don't get to use their extra capacity, and the simpler linear model is less
+likely to overfit. Recall is high (0.93), which matters for a screening
+scenario where missing a sick patient is worse than a false alarm. The
+coefficients are also easy to interpret, which is a plus in a medical setting.
 
-Confusion matrices and ROC curves for every family are in `reports/figures/`
-and attached to each MLflow run.
-
----
-
-## 6. Experiment tracking (MLflow)
-
-`src/models/train.py` logs one MLflow run per model family to the local
-tracking store (`sqlite:///mlflow.db`, artifacts under `./mlruns`):
-
-- **Parameters** — best hyper-parameters + CV configuration
-- **Metrics** — CV means (accuracy, precision, recall, F1, ROC-AUC, ROC-AUC σ)
-  and all held-out test metrics
-- **Artifacts** — confusion matrix PNG, ROC curve PNG, text classification
-  report, and the fitted sklearn pipeline (`mlflow.sklearn.log_model`)
-
-Inspect with `mlflow ui --backend-store-uri sqlite:///mlflow.db`
-(screenshot placeholder: `screenshots/mlflow_runs.png`).
-
-The exported winner is also written to `models/model.joblib` with
-`models/model_metadata.json` capturing metrics, hyper-parameters, library
-versions, timestamp, and the source MLflow run id — a lightweight model card
-that the API surfaces via `/health`.
+Confusion matrices and ROC curves for all three models are saved in
+`reports/figures/` and attached to the MLflow runs.
 
 ---
 
-## 7. Model packaging & reproducibility
+## 6. Experiment tracking with MLflow
 
-- `requirements.txt` — full training/dev environment (flexible minimums)
-- `requirements-api.txt` — exact pins for serving, matching training versions
-  of scikit-learn/xgboost so the pickle deserializes identically
-- Pipeline + preprocessing serialized as **one** joblib artifact
-- `data/processed/` committed → CI retrains deterministically
-  (`random_state = 42` everywhere)
-- Every pipeline stage is a module entry point (`python -m src...`), verified
-  from a clean checkout by CI
+Each model family gets its own MLflow run (local sqlite store `mlflow.db`,
+artifacts under `mlruns/`). For every run I log:
+
+- the best hyperparameters and the CV configuration
+- cross-validation means for accuracy, precision, recall, F1 and ROC-AUC, plus
+  the ROC-AUC standard deviation
+- all test metrics
+- the confusion matrix and ROC curve as PNGs, a text classification report,
+  and the fitted pipeline itself via `mlflow.sklearn.log_model`
+
+The UI can be started with `mlflow ui --backend-store-uri sqlite:///mlflow.db`.
+Screenshots are in `screenshots/mlflow_runs.png` and
+`screenshots/mlflow_run_detail.png`.
+
+Next to the MLflow store, the winning pipeline is exported to
+`models/model.joblib` together with `models/model_metadata.json`, which records
+the metrics, hyperparameters, library versions, training timestamp and the
+MLflow run id. The API reads this file and reports the model family in its
+`/health` response.
 
 ---
 
-## 8. CI/CD pipeline (GitHub Actions)
+## 7. Packaging and reproducibility
 
-`.github/workflows/ci.yml`, triggered on push/PR to `main`
-(screenshot placeholder: `screenshots/ci_pipeline.png`):
+- `requirements.txt` pins the full training environment.
+- `requirements-api.txt` pins only what the serving container needs. The
+  scikit-learn and xgboost versions match the training environment exactly so
+  the pickled pipeline loads identically.
+- The preprocessing and the model are one artifact, so there is no way to serve
+  the model with the wrong preprocessing.
+- The cleaned dataset is committed and every random operation uses seed 42, so
+  training is reproducible. CI proves this by retraining from scratch on every
+  push.
+- Each stage is runnable as a module (`python -m src.data.download`,
+  `python -m src.models.train`, and so on).
 
-| Stage | What it does | Fails the pipeline on |
-|---|---|---|
-| **Lint** | `ruff check src tests` | style/quality violations |
-| **Test** | `pytest` — 24 tests over cleaning, pipeline, training, MLflow logging, API contract | any test failure |
-| **Train** | retrains from the committed cleaned CSV; uploads model, MLflow store, and evaluation reports as artifacts | training error |
-| **Docker** | builds the image with the fresh model, boots the container, polls `/health`, POSTs to `/predict` and validates the response | build or smoke-test failure |
+---
 
-Stages are chained with `needs:` so a failure stops everything downstream, and
-each workflow run keeps its artifacts (model + reports) for traceability.
-Tests use deterministic synthetic data, so they need no network or pre-trained
-model.
+## 8. CI/CD pipeline
+
+The GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and
+pull request to `main`. It has four jobs that run in sequence, and a failure in
+any job stops the rest:
+
+| Job | What it does |
+|---|---|
+| Lint | `ruff check src tests` |
+| Test | runs the 24 pytest tests (data cleaning, pipeline, training, MLflow logging, API) |
+| Train | retrains from the committed cleaned CSV and uploads the model, MLflow store and reports as artifacts |
+| Docker | builds the image with the fresh model, starts the container, waits for `/health`, and POSTs a sample patient to `/predict` |
+
+The tests run against synthetic data generated in `tests/conftest.py`, so they
+don't need network access or a pre-trained model. A green run is shown in
+`screenshots/ci_pipeline.png`.
 
 ---
 
 ## 9. Containerization
 
-`Dockerfile` builds a slim serving image from `python:3.12-slim`: pinned
-serving deps → `src/` → trained model, running as a non-root user with a
-container `HEALTHCHECK` hitting `/health`.
+The `Dockerfile` starts from `python:3.12-slim`, installs the pinned serving
+dependencies, copies `src/` and the trained model, and runs uvicorn as a
+non-root user. A `HEALTHCHECK` hits `/health` every 30 seconds.
 
-Verified locally:
+I verified it locally:
 
 ```
 docker build -t heart-disease-api:latest .
 docker run --rm -p 8000:8000 heart-disease-api:latest
+
 curl http://localhost:8000/health
-  → {"status":"ok","model_loaded":true,"model_family":"logistic_regression"}
-curl -X POST http://localhost:8000/predict -d '{...patient json...}'
-  → {"prediction":1,"label":"heart_disease","probability":0.8986,...}
+{"status":"ok","model_loaded":true,"model_family":"logistic_regression"}
+
+curl -X POST http://localhost:8000/predict -H "Content-Type: application/json" -d @patient.json
+{"prediction":1,"label":"heart_disease","probability":0.8986,"model_family":"logistic_regression"}
 ```
 
-(screenshot placeholder: `screenshots/docker_run.png`)
+The container returns exactly the same prediction as the local environment,
+which was the point of the exercise. See `screenshots/docker_run.png` and
+`screenshots/predict_response.png`.
 
 ---
 
-## 10. Deployment (Kubernetes)
+## 10. Kubernetes deployment
 
-`k8s/deployment.yaml` + `k8s/service.yaml` deploy the image with:
+`k8s/deployment.yaml` runs 2 replicas with CPU/memory requests and limits, and
+readiness/liveness probes on `/health`. `k8s/service.yaml` exposes them through
+a LoadBalancer on port 80. I deployed on Docker Desktop Kubernetes, where the
+LoadBalancer binds to localhost; on Minikube you would use
+`minikube service heart-disease-api --url` instead, and on a cloud cluster it
+becomes a real load balancer.
 
-- 2 replicas, CPU/memory requests & limits
-- readiness + liveness probes on `/health` (a pod that loses its model is
-  restarted and removed from the Service until healthy)
-- Prometheus scrape annotations
-- a `LoadBalancer` Service (port 80 → 8000) — on Docker Desktop it binds
-  `localhost`; on Minikube use `minikube service heart-disease-api --url`;
-  on EKS/GKE/AKS it provisions a cloud load balancer
+```
+kubectl apply -f k8s/deployment.yaml -f k8s/service.yaml
+kubectl get pods,svc -l app=heart-disease-api
+```
 
-Step-by-step instructions: [`k8s/README.md`](../k8s/README.md)
-(screenshot placeholders: `screenshots/kubectl_get_pods.png`,
-`screenshots/k8s_predict.png`).
+Both pods came up healthy and `/predict` works through the service (see
+`screenshots/kubectl_get_pods.png` and `screenshots/k8s_predict.png`). The full
+walkthrough is in `k8s/README.md`.
 
 ---
 
-## 11. Monitoring & logging
+## 11. Monitoring and logging
 
-- **Request logging** — middleware logs method, path, status, and latency for
-  every request; predictions are logged with their probability.
-- **Prometheus metrics** — `/metrics` exposes HTTP request counts/latency
-  histograms (via `prometheus-fastapi-instrumentator`) plus a custom
-  `model_predictions_total{predicted_class=...}` counter, giving a live view of
-  the served class mix — a cheap first-order data-drift signal.
-- **Grafana** — `docker compose up --build` starts API + Prometheus + Grafana
-  with an auto-provisioned dashboard (request rate, p95 latency, predictions by
-  class, HTTP status codes). Grafana: http://localhost:3000 (admin/admin).
-  (screenshot placeholder: `screenshots/grafana_dashboard.png`)
+Three layers of visibility:
 
-In an ML system this matters beyond uptime: latency regressions, error spikes,
-and shifts in the prediction distribution are early symptoms of model or data
-problems that accuracy metrics alone won't reveal until retraining.
+1. A logging middleware in the API writes one line per request with the
+   method, path, status code and latency. Predictions are also logged with
+   their probability.
+2. The `/metrics` endpoint exposes Prometheus metrics: standard HTTP request
+   counters and latency histograms, plus a custom
+   `model_predictions_total{predicted_class=...}` counter. Watching the class
+   mix of predictions over time is a cheap early warning for data drift.
+3. `docker compose up --build` starts the API together with Prometheus and
+   Grafana. Grafana is provisioned automatically with a dashboard showing
+   request rate, p95 latency, predictions by class and HTTP status codes
+   (see `screenshots/grafana_dashboard.png`).
+
+For an ML service this is more than uptime monitoring. A shift in the
+prediction distribution or a latency regression usually shows up here long
+before anyone looks at model accuracy again.
 
 ---
 
 ## 12. Setup instructions
 
-See [README.md](../README.md) for the full quickstart. Summary from a clean
-checkout (Python 3.12+):
+The short version (Python 3.12+, more detail in the README):
 
 ```bash
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m venv .venv
+.venv\Scripts\activate              # on Linux/macOS: source .venv/bin/activate
 pip install -r requirements.txt
-python -m src.data.download && python -m src.data.preprocess
+
+python -m src.data.download
+python -m src.data.preprocess
 python -m src.eda
 python -m src.models.train
-pytest -v && ruff check src tests
-uvicorn src.api.main:app --port 8000                # or: docker build + run
+
+pytest -v
+ruff check src tests
+
+uvicorn src.api.main:app --port 8000
 ```
+
+Swagger UI is at http://localhost:8000/docs once the server is running.
 
 ---
 
@@ -316,25 +316,11 @@ uvicorn src.api.main:app --port 8000                # or: docker build + run
 |---|---|
 | Source code, Dockerfile, requirements | repo root, `src/`, `Dockerfile`, `requirements*.txt` |
 | Cleaned dataset + download script | `data/processed/`, `src/data/download.py` |
-| EDA notebook + scripts | `notebooks/eda.ipynb`, `src/eda.py` |
+| EDA notebook and scripts | `notebooks/eda.ipynb`, `src/eda.py` |
 | Unit tests | `tests/` (24 tests) |
 | GitHub Actions workflow | `.github/workflows/ci.yml` |
 | Deployment manifests | `k8s/` |
 | Monitoring config | `monitoring/`, `docker-compose.yml` |
-| Screenshots | `screenshots/` (see its README for the capture list) |
-| Report | this document (`docs/REPORT.md`) |
-| API access | `http://localhost:8000` local / k8s LoadBalancer; Swagger at `/docs` |
-
----
-
-## 14. Limitations & future work
-
-- 303 rows is small; the test set (61) gives noisy point estimates — the CV
-  numbers are the more reliable comparison.
-- The model registry could move from a metadata JSON to MLflow Model Registry
-  backed by a shared database for staged promotion (staging → production).
-- Retraining is manual/CI-triggered; a scheduled pipeline with data-drift
-  detection (e.g., population-stability index on incoming `/predict` payloads)
-  would close the loop.
-- Probability calibration (Platt/isotonic) would strengthen the clinical
-  usefulness of the returned confidence scores.
+| Screenshots | `screenshots/` |
+| Report | this document |
+| API access | http://localhost:8000 locally, or through the k8s LoadBalancer |
