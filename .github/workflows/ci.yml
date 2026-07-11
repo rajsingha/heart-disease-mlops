@@ -73,6 +73,7 @@ jobs:
           name: mlflow-and-reports
           path: |
             mlruns
+            mlflow.db
             reports
 
   docker:

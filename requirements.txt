@@ -1,38 +1,40 @@
 # Full development environment: data science, training, tracking, serving, testing.
-# For the slim serving-only image see requirements-api.txt (used by the Dockerfile).
+# Versions are pinned so a clean environment reproduces training exactly.
+# scikit-learn / xgboost MUST stay in sync with requirements-api.txt so the
+# serialized pipeline loads identically in the serving image.
 
 # Data processing
-pandas>=2.2
-numpy>=2.0
+pandas==2.3.3
+numpy==2.5.1
 
 # Visualization
-matplotlib>=3.9
-seaborn>=0.13
+matplotlib==3.11.0
+seaborn==0.13.2
 
 # ML frameworks
-scikit-learn>=1.5
-xgboost>=2.1
+scikit-learn==1.9.0
+xgboost==3.3.0
 
 # Experiment tracking
-mlflow>=2.16
+mlflow==3.14.0
 
 # Dataset acquisition
-ucimlrepo>=0.0.7
+ucimlrepo==0.0.7
 
 # API serving
-fastapi>=0.115
-uvicorn[standard]>=0.30
-pydantic>=2.8
-prometheus-fastapi-instrumentator>=7.0
+fastapi==0.139.0
+uvicorn[standard]==0.51.0
+pydantic==2.13.4
+prometheus-fastapi-instrumentator==8.0.2
 
 # Model persistence
-joblib>=1.4
+joblib==1.5.3
 
 # Testing & quality
-pytest>=8.3
-httpx>=0.27
-ruff>=0.6
+pytest==9.1.1
+httpx==0.28.1
+ruff==0.15.21
 
 # Notebook execution
-ipykernel>=6.29
-nbconvert>=7.16
+ipykernel==7.3.0
+nbconvert==7.17.1
