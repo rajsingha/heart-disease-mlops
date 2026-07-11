@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Testing / linting
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# MLflow local tracking store (keep runs out of git; screenshots go in screenshots/)
+mlruns/
+mlartifacts/
+mlflow.db
+
+# Data — raw data is re-downloadable via src/data/download.py
+data/raw/*
+!data/raw/.gitkeep
+
+# Trained model binaries are reproducible via src/models/train.py
+models/*.joblib
+models/*.pkl
+
+# OS
+.DS_Store
+Thumbs.db
