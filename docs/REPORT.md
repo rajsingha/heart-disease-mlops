@@ -3,7 +3,7 @@
 **Course:** MLOps Experimental Learning Assignment
 **Author:** Raj Singha
 **Date:** July 2026
-**Repository:** *(add GitHub URL after pushing)*
+**Repository:** https://github.com/rajsingha/heart-disease-mlops
 
 ---
 
