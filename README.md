@@ -59,6 +59,17 @@ python -m src.models.train        # exports best model -> models/model.joblib
 
 # 5. Inspect experiments
 mlflow ui --backend-store-uri sqlite:///mlflow.db    # http://127.0.0.1:5000
+```
+
+> **Note (Python 3.14 only):** mlflow 3.14.0's UI server crashes on Python 3.14
+> because `importlib.abc.Traversable` was removed from the stdlib. Until the
+> upstream fix ships, patch one line in
+> `.venv/Lib/site-packages/mlflow/assistant/skill_installer.py`:
+> `from importlib.abc import Traversable` →
+> `from importlib.resources.abc import Traversable`.
+> Python 3.12/3.13 (and the Docker image/CI) are unaffected.
+
+```bash
 
 # 6. Serve the API
 uvicorn src.api.main:app --host 0.0.0.0 --port 8000
